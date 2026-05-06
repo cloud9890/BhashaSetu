@@ -1,0 +1,5 @@
+{
+  "name": "BhashaSetu: Multilingual NLP for Indian Languages",
+  "description": "A prototype NLP platform for low-resource Indian languages, supporting translation, summarization, sentiment analysis, and synthetic data generation using Gemini AI.",
+  "requestFramePermissions": ["microphone", "camera"]
+}

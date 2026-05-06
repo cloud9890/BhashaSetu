@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BhashaSetu</title>
+    <meta name="description" content="Production-grade NLP ecosystem for Indian languages" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#E4E3E0" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#141414" />
+    <link rel="apple-touch-icon" href="/logo.png">
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- SW cache buster: clears stale service workers causing blank page -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          registrations.forEach(function(reg) { reg.unregister(); });
+        });
+        // Also clear all caches
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            names.forEach(function(name) { caches.delete(name); });
+          });
+        }
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
