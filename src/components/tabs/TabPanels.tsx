@@ -94,23 +94,23 @@ export function TabPanels({
 
         {/* ── Google Translate-style language bar ──────────────────────── */}
         {activeTab !== 'conversation' && activeTab !== 'augmentation' && activeTab !== 'transliterate' && (
-          <div className="flex items-stretch border border-[#141414] overflow-hidden">
+          <div className="flex items-stretch border border-[var(--app-fg)] overflow-hidden">
             {/* Source language */}
             <div className="flex-1 relative">
               <select
                 value={sourceLang}
                 onChange={(e) => setSourceLang(e.target.value)}
-                className="w-full h-full bg-[#141414] text-[#E4E3E0] px-3 py-2.5 text-sm font-medium focus:outline-none appearance-none cursor-pointer pr-8"
+                className="w-full h-full bg-[var(--app-fg)] text-[var(--app-bg)] px-3 py-2.5 text-sm font-medium focus:outline-none appearance-none cursor-pointer pr-8"
               >
-                <option value="detect" className="bg-[#141414]">Detect language</option>
+                <option value="detect" className="bg-[var(--app-fg)]">Detect language</option>
                 {SUPPORTED_LANGUAGES.map(l => (
-                  <option key={l.code} value={l.code} className="bg-[#141414]">{l.name}</option>
+                  <option key={l.code} value={l.code} className="bg-[var(--app-fg)]">{l.name}</option>
                 ))}
               </select>
               <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
                 {detecting
-                  ? <Loader2 className="w-3 h-3 text-[#E4E3E0] animate-spin" />
-                  : <Search className="w-3 h-3 text-[#E4E3E0] opacity-50" />
+                  ? <Loader2 className="w-3 h-3 text-[var(--app-bg)] animate-spin" />
+                  : <Search className="w-3 h-3 text-[var(--app-bg)] opacity-50" />
                 }
               </div>
             </div>
@@ -123,7 +123,7 @@ export function TabPanels({
                 setTargetLang(prev);
               }}
               title="Swap languages"
-              className="px-3 border-x border-[#141414]/30 bg-[#141414] text-[#E4E3E0] hover:opacity-70 transition-opacity flex items-center"
+              className="px-3 border-x border-[var(--app-fg)]/30 bg-[var(--app-fg)] text-[var(--app-bg)] hover:opacity-80 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center"
             >
               <ArrowLeftRight className="w-3.5 h-3.5" />
             </button>
@@ -133,9 +133,9 @@ export function TabPanels({
               <select
                 value={targetLang}
                 onChange={(e) => setTargetLang(e.target.value)}
-                className="w-full h-full bg-[#E4E3E0] text-[#141414] px-3 py-2.5 text-sm font-medium focus:outline-none appearance-none cursor-pointer pr-6"
+                className="w-full h-full bg-[var(--app-bg)] text-[var(--app-fg)] px-3 py-2.5 text-sm font-medium focus:outline-none appearance-none cursor-pointer pr-6"
               >
-                {SUPPORTED_LANGUAGES.filter(l => l.code !== 'en' || targetLang === 'en').map(l => (
+                {SUPPORTED_LANGUAGES.map(l => (
                   <option key={l.code} value={l.code}>{l.name}</option>
                 ))}
               </select>
@@ -165,8 +165,8 @@ export function TabPanels({
                     key={d}
                     onClick={() => setSimplifyDomain(d)}
                     className={cn(
-                      "flex-1 py-1.5 text-[10px] font-mono uppercase border border-[#141414] rounded-sm transition-all",
-                      simplifyDomain === d ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+                      "flex-1 py-1.5 text-[10px] font-mono uppercase border border-[var(--app-fg)] rounded-sm transition-all",
+                      simplifyDomain === d ? "bg-[var(--app-fg)] text-[var(--app-bg)]" : "hover:bg-[var(--app-fg)]/5"
                     )}
                   >
                     {d}
@@ -191,7 +191,7 @@ export function TabPanels({
               <select 
                 value={targetScript}
                 onChange={(e) => setTargetScript(e.target.value)}
-                className="w-full bg-transparent border border-[#141414] p-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] transition-all"
+                className="w-full bg-transparent border border-[var(--app-fg)] p-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--app-fg)] transition-all"
               >
                 {['Devanagari', 'Bengali', 'Gujarati', 'Gurmukhi', 'Kannada', 'Malayalam', 'Odia', 'Tamil', 'Telugu', 'Latin'].map(script => (
                   <option key={script} value={script}>{script}</option>
@@ -217,8 +217,8 @@ export function TabPanels({
                     key={len}
                     onClick={() => setSummaryLength(len)}
                     className={cn(
-                      "flex-1 py-1.5 text-[10px] font-mono uppercase border border-[#141414] rounded-sm transition-all",
-                      summaryLength === len ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+                      "flex-1 py-1.5 text-[10px] font-mono uppercase border border-[var(--app-fg)] rounded-sm transition-all",
+                      summaryLength === len ? "bg-[var(--app-fg)] text-[var(--app-bg)]" : "hover:bg-[var(--app-fg)]/5"
                     )}
                   >
                     {len}
@@ -245,7 +245,7 @@ export function TabPanels({
                 max="10" 
                 value={syntheticCount}
                 onChange={(e) => setSyntheticCount(parseInt(e.target.value))}
-                className="w-full accent-[#141414]"
+                className="w-full accent-[var(--app-fg)]"
               />
             </motion.div>
           )}
@@ -255,7 +255,7 @@ export function TabPanels({
       {activeTab === 'video' ? (
         <div className="flex flex-col gap-4">
           <label className="text-[10px] font-mono uppercase opacity-50">Upload Video Content</label>
-          <div className="border-2 border-dashed border-[#141414]/20 p-8 rounded-sm text-center hover:border-[#141414] transition-all relative">
+          <div className="border-2 border-dashed border-[var(--app-fg)]/20 p-8 rounded-sm text-center hover:border-[var(--app-fg)] transition-all relative">
             <input 
               type="file" 
               accept="video/*" 
@@ -285,7 +285,7 @@ export function TabPanels({
       ) : activeTab === 'docubridge' ? (
         <div className="flex flex-col gap-4">
           <label className="text-[10px] font-mono uppercase opacity-50">Upload Document (optional)</label>
-          <div className="border-2 border-dashed border-[#141414]/20 p-6 rounded-sm text-center hover:border-[#141414] transition-all relative">
+          <div className="border-2 border-dashed border-[var(--app-fg)]/20 p-6 rounded-sm text-center hover:border-[var(--app-fg)] transition-all relative">
             <input 
               type="file" 
               accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" 
@@ -315,29 +315,29 @@ export function TabPanels({
             )}
           </div>
           <div className="flex items-center gap-3 opacity-40">
-            <div className="flex-1 h-px bg-[#141414]" />
+            <div className="flex-1 h-px bg-[var(--app-fg)]" />
             <span className="text-[9px] font-mono uppercase">or simplify text below</span>
-            <div className="flex-1 h-px bg-[#141414]" />
+            <div className="flex-1 h-px bg-[var(--app-fg)]" />
           </div>
           <textarea 
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Paste legal or medical text to simplify..."
             disabled={!!documentFile}
-            className="w-full h-32 bg-transparent border border-[#141414] p-4 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] transition-all resize-none disabled:opacity-30 disabled:cursor-not-allowed"
+            className="w-full h-32 bg-transparent border border-[var(--app-fg)] p-4 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--app-fg)] transition-all resize-none disabled:opacity-30 disabled:cursor-not-allowed"
           />
         </div>
       ) : activeTab === 'conversation' ? (
         <ConversationPanel setError={setError} />
       ) : activeTab === 'sign' ? (
-        <div className="flex flex-col gap-6 items-center justify-center py-10 border-2 border-dashed border-[#141414]/20 rounded-sm bg-white/10">
+        <div className="flex flex-col gap-6 items-center justify-center py-10 border-2 border-dashed border-[var(--app-fg)]/20 rounded-sm bg-white/10">
           <Hand className="w-16 h-16 opacity-20 mb-4" />
           <p className="text-xs font-mono uppercase opacity-50 text-center px-6">
             Use your camera to identify and translate hand sign language gestures in real-time.
           </p>
           <button 
             onClick={startCamera}
-            className="mt-6 bg-[#141414] text-[#E4E3E0] px-6 py-3 font-mono text-[10px] uppercase tracking-widest flex items-center gap-2 hover:opacity-90 transition-all rounded-sm"
+            className="mt-6 bg-[var(--app-fg)] text-[var(--app-bg)] px-6 py-3 font-mono text-[10px] uppercase tracking-widest flex items-center gap-2 hover:opacity-90 transition-all rounded-sm"
           >
             <Camera className="w-4 h-4" />
             Open Sign Camera
@@ -351,7 +351,7 @@ export function TabPanels({
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             placeholder="e.g. Agriculture, Education, Local Governance"
-            className="w-full bg-transparent border border-[#141414] p-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] transition-all"
+            className="w-full bg-transparent border border-[var(--app-fg)] p-3 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--app-fg)] transition-all"
           />
         </div>
       ) : (
@@ -361,7 +361,7 @@ export function TabPanels({
             <div className="flex gap-2">
               <button 
                 onClick={startCamera}
-                className="p-1.5 rounded-full transition-all bg-[#141414]/5 text-[#141414] hover:bg-[#141414]/10"
+                className="p-1.5 rounded-full transition-all bg-[var(--app-fg)]/5 text-[var(--app-fg)] hover:bg-[var(--app-fg)]/10"
                 title="Extract text from camera"
               >
                 <Camera className="w-3.5 h-3.5" />
@@ -370,7 +370,7 @@ export function TabPanels({
                 onClick={handleStartListening}
                 className={cn(
                   "p-1.5 rounded-full transition-all",
-                  isListening ? "bg-red-500 text-white animate-pulse" : "bg-[#141414]/5 text-[#141414] hover:bg-[#141414]/10"
+                  isListening ? "bg-red-500 text-white animate-pulse" : "bg-[var(--app-fg)]/5 text-[var(--app-fg)] hover:bg-[var(--app-fg)]/10"
                 )}
                 title={isListening ? "Listening..." : "Start Speech-to-Text"}
               >
@@ -383,7 +383,7 @@ export function TabPanels({
             onChange={(e) => setInputText(e.target.value)}
             placeholder={isListening ? 'Listening... speak now' : 'Enter text to process...'}
             className={cn(
-              'w-full h-48 bg-transparent border border-[#141414] p-4 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414] transition-all resize-none',
+              'w-full h-48 bg-transparent border border-[var(--app-fg)] p-4 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--app-fg)] transition-all resize-none',
               isListening && 'border-red-500/50 ring-1 ring-red-500/30'
             )}
           />
@@ -397,7 +397,7 @@ export function TabPanels({
         <button
           onClick={handleAction}
           disabled={loading}
-          className="w-full bg-[#141414] text-[#E4E3E0] py-4 font-mono text-sm uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 disabled:opacity-50 transition-all"
+          className="w-full bg-[var(--app-fg)] text-[var(--app-bg)] py-4 font-mono text-sm uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 hover:shadow-lg hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:hover:transform-none disabled:hover:shadow-none transition-all duration-300"
         >
           {loading ? (
             <>

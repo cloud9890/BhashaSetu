@@ -11,7 +11,7 @@ interface SidebarProps {
 
 export function Sidebar({ activeTab, setActiveTab, tabs }: SidebarProps) {
   return (
-    <nav className="w-full md:w-72 border-b md:border-b-0 md:border-r border-[#141414] p-3 md:p-6 flex flex-col gap-2 shrink-0 bg-[#E4E3E0] z-20 overflow-hidden">
+    <nav className="w-full md:w-72 border-b md:border-b-0 md:border-r border-[var(--app-fg)] p-3 md:p-6 flex flex-col gap-2 shrink-0 bg-[var(--app-bg)] z-20 overflow-hidden">
       <span className="text-[10px] font-mono opacity-50 uppercase px-3 mb-1 md:mb-4 hidden md:block tracking-widest">NLP Modules</span>
       <div className="flex flex-row md:flex-col gap-2 overflow-x-auto md:overflow-y-auto scrollbar-hide pb-1 md:pb-0">
         {tabs.map((tab) => (
@@ -21,8 +21,8 @@ export function Sidebar({ activeTab, setActiveTab, tabs }: SidebarProps) {
             className={cn(
               "flex items-center gap-3 px-4 py-3 rounded-sm transition-all duration-300 text-left shrink-0 md:shrink",
               activeTab === tab.id 
-                ? "bg-[#141414] text-[#E4E3E0] shadow-lg translate-x-1" 
-                : "hover:bg-[#141414]/5 opacity-70 hover:opacity-100"
+                ? "bg-[var(--app-fg)] text-[var(--app-bg)] shadow-lg translate-x-2" 
+                : "hover:bg-[var(--app-fg)]/10 opacity-70 hover:opacity-100 hover:translate-x-1 hover:shadow-sm"
             )}
           >
             <tab.icon className={cn("w-4 h-4 shrink-0", activeTab === tab.id ? "text-amber-500" : "")} />
@@ -39,8 +39,8 @@ export function Sidebar({ activeTab, setActiveTab, tabs }: SidebarProps) {
         ))}
       </div>
       
-      <div className="mt-auto pt-6 border-t border-[#141414]/10 hidden md:block">
-        <div className="bg-[#141414]/5 p-4 rounded-sm">
+      <div className="mt-auto pt-6 border-t border-[var(--app-fg)]/10 hidden md:block">
+        <div className="bg-[var(--app-fg)]/5 p-4 rounded-sm">
           <div className="flex items-center gap-2 mb-2">
             <Info className="w-3 h-3 opacity-60" />
             <span className="text-[10px] font-mono uppercase opacity-60">About</span>

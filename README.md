@@ -32,6 +32,10 @@ Upload videos to extract intelligent summaries, identify key speakers, and gener
 - **Dialect Detector:** Identifies and standardizes specific regional dialects.
 - **Cultural Idioms:** Maps English proverbs to their exact cultural equivalents (e.g., finding the perfect Hindi/Assamese proverb for "A penny saved is a penny earned").
 
+### 🎨 Premium UI/UX & Theming
+- **Dynamic Interactions:** Features fluid CSS hover effects, scale transformations, and active states for a responsive, premium feel.
+- **Dark/Light Mode:** Includes a fully functional theme toggle for optimal accessibility and viewing comfort in any environment.
+
 ---
 
 ## 🛠️ Tech Stack

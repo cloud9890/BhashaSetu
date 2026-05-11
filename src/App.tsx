@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { 
+import {
   Languages, FileText, BarChart3, Database, Search, Video, Shuffle, BookOpen, Hand, Info, Users
 } from 'lucide-react';
 
@@ -8,7 +8,7 @@ import { useCamera } from './hooks/useCamera';
 import { useAudio } from './hooks/useAudio';
 import { Tab, Message } from './types';
 
-import { 
+import {
   SUPPORTED_LANGUAGES, translateText, summarizeText, analyzeSentiment, generateSyntheticData,
   detectLanguage, extractTextFromImage, normalizeCodeSwitching, exploreIdioms, simplifyComplexText,
   transliterateScript, detectDialect, analyzeVideo, translateSignLanguage, translateSignVideo,
@@ -49,13 +49,13 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [topic, setTopic] = useState('');
   const [copied, setCopied] = useState(false);
-  
+
   const [summaryLength, setSummaryLength] = useState<'short' | 'medium' | 'long'>('medium');
   const [syntheticCount, setSyntheticCount] = useState(5);
   const [videoAnalysisType, setVideoAnalysisType] = useState<VideoAnalysisType>('summarization');
   const [simplifyDomain, setSimplifyDomain] = useState<'legal' | 'medical'>('legal');
   const [targetScript, setTargetScript] = useState('Devanagari');
-  
+
   const [messages, setMessages] = useState<Message[]>([]);
 
 
@@ -65,8 +65,8 @@ export default function App() {
     setError(null);
     try {
       const detection = await detectLanguage(inputText);
-      const matchedLang = SUPPORTED_LANGUAGES.find(l => 
-        l.name.toLowerCase() === detection.languageName.toLowerCase() || 
+      const matchedLang = SUPPORTED_LANGUAGES.find(l =>
+        l.name.toLowerCase() === detection.languageName.toLowerCase() ||
         l.code === detection.languageCode
       );
       if (matchedLang) setSourceLang(matchedLang.code);
@@ -82,15 +82,15 @@ export default function App() {
 
   const { history, showHistory, setShowHistory, saveToHistory, clearHistory } = useHistory();
   const { isListening, isSpeaking, startListening, stopListening, playSpeech, stopSpeech } = useAudio();
-  const { 
+  const {
     showCamera, cameraStream, isRecording, videoRef, canvasRef,
-    startCamera, stopCamera, captureFrame, startRecording, stopRecording 
+    startCamera, stopCamera, captureFrame, startRecording, stopRecording
   } = useCamera();
 
   const handleAction = async () => {
     if (activeTab === 'conversation') return;
     if (activeTab !== 'augmentation' && activeTab !== 'video' && activeTab !== 'sign' && activeTab !== 'docubridge' && (!inputText || inputText.trim().length < 2)) return;
-    
+
     setLoading(true);
     setError(null);
     try {
@@ -109,9 +109,10 @@ export default function App() {
         case 'docubridge':
           if (documentFile) {
             const reader = new FileReader();
-            const base64Promise = new Promise<string>((resolve) => {
-               reader.onload = () => resolve((reader.result as string).split(',')[1]);
-               reader.readAsDataURL(documentFile);
+            const base64Promise = new Promise<string>((resolve, reject) => {
+              reader.onload = () => resolve((reader.result as string).split(',')[1]);
+              reader.onerror = () => reject(new Error('Failed to read document file'));
+              reader.readAsDataURL(documentFile);
             });
             const base64 = await base64Promise;
             data = await translateDocument(base64, documentFile.type, langName);
@@ -151,23 +152,23 @@ export default function App() {
 
   const sendMessage = async (text: string, role: 'user' | 'assistant' = 'user') => {
     if (!text.trim()) return;
-    
+
     const newMsg: Message = { role, text };
     const updatedMessages = [...messages, newMsg];
     setMessages(updatedMessages);
     setInputText('');
-    
+
     setLoading(true);
     try {
       const langName = SUPPORTED_LANGUAGES.find(l => l.code === targetLang)?.name || 'Assamese';
       const translationData = await translateConversation(updatedMessages, langName);
-      
+
       setMessages(prev => {
         const last = prev[prev.length - 1];
-        return [...prev.slice(0, -1), { 
-          ...last, 
-          translation: translationData.translation, 
-          pronunciation: translationData.pronunciation 
+        return [...prev.slice(0, -1), {
+          ...last,
+          translation: translationData.translation,
+          pronunciation: translationData.pronunciation
         }];
       });
     } catch (err) {
@@ -203,7 +204,7 @@ export default function App() {
     else if (activeTab === 'augmentation') textToCopy = Array.isArray(result) ? result.join('\n') : '';
     else if (activeTab === 'sentiment') textToCopy = `${result.sentiment}: ${result.explanation}`;
     else textToCopy = typeof result === 'string' ? result : JSON.stringify(result);
-    
+
     if (textToCopy) {
       navigator.clipboard.writeText(textToCopy);
       setCopied(true);
@@ -238,7 +239,6 @@ export default function App() {
   const handleStartRecording = () => {
     startRecording(async (chunks) => {
       if (chunks.length === 0) return;
-      const blob = new Blob(chunks, { type: 'video/webm' });
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64Data = (reader.result as string).split(',')[1];
@@ -255,6 +255,11 @@ export default function App() {
           setLoading(false);
         }
       };
+      reader.onerror = () => {
+        setError("Failed to read recorded video.");
+        setLoading(false);
+      };
+      reader.readAsDataURL(blob);
       reader.readAsDataURL(blob);
     });
   };
@@ -274,28 +279,28 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans selection:bg-[#141414] selection:text-[#E4E3E0]">
+    <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-fg)] font-sans selection:bg-[var(--app-fg)] selection:text-[var(--app-bg)]">
       <Header showHistory={showHistory} setShowHistory={setShowHistory} />
 
-      <main className="flex flex-col md:flex-row min-h-[calc(100vh-73px)] md:minh-[calc(100vh-89px)] relative">
-        <Sidebar 
-          activeTab={activeTab} 
+      <main className="flex flex-col md:flex-row min-h-[calc(100vh-73px)] md:min-h-[calc(100vh-89px)] relative">
+        <Sidebar
+          activeTab={activeTab}
           setActiveTab={(tab) => {
             setActiveTab(tab);
             setResult(null);
             setError(null);
-          }} 
-          tabs={APP_TABS as any} 
+          }}
+          tabs={APP_TABS as any}
         />
 
-        <CameraOverlay 
+        <CameraOverlay
           showCamera={showCamera} cameraStream={cameraStream} activeTab={activeTab} loading={loading}
           stopCamera={stopCamera} videoRef={videoRef} canvasRef={canvasRef}
           isRecording={isRecording} startRecording={handleStartRecording} stopRecording={stopRecording}
           captureFrame={captureFrame} onCaptureImage={onCaptureImage}
         />
 
-        <HistoryOverlay 
+        <HistoryOverlay
           showHistory={showHistory} setShowHistory={setShowHistory}
           history={history} clearHistory={clearHistory} onSelectHistory={handleSelectHistory}
         />
@@ -304,7 +309,7 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10">
             {/* Input Side */}
             <div className="flex flex-col gap-6">
-              <TabPanels 
+              <TabPanels
                 activeTab={activeTab} sourceLang={sourceLang} setSourceLang={setSourceLang}
                 targetLang={targetLang} setTargetLang={setTargetLang}
                 detecting={detecting} handleDetectLanguage={handleDetectLanguage}
@@ -325,7 +330,7 @@ export default function App() {
 
             {/* Output Side */}
             <div className="flex flex-col gap-6">
-              <OutputDisplay 
+              <OutputDisplay
                 result={result} error={error} setError={setError}
                 activeTab={activeTab} loading={loading}
                 copied={copied} handleCopy={handleCopy}

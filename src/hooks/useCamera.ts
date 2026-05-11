@@ -15,9 +15,24 @@ export function useCamera() {
     try {
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          } 
+        });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ 
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            } 
+          });
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
       }
       streamRef.current = stream;
       setCameraStream(stream);
@@ -51,7 +66,13 @@ export function useCamera() {
 
   const startRecording = (onComplete: (chunks: Blob[]) => void) => {
     if (!streamRef.current) return;
-    const recorder = new MediaRecorder(streamRef.current, { mimeType: 'video/webm' });
+    
+    let mimeType = 'video/webm';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = 'video/mp4';
+    }
+    
+    const recorder = new MediaRecorder(streamRef.current, { mimeType });
     let chunks: Blob[] = [];
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);

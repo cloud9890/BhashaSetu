@@ -7,6 +7,17 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+@layer base {
+  :root {
+    --app-bg: #E4E3E0;
+    --app-fg: #141414;
+  }
+  .dark {
+    --app-bg: #141414;
+    --app-fg: #E4E3E0;
+  }
+}
+
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none;

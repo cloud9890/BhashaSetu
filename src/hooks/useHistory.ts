@@ -6,23 +6,30 @@ export function useHistory() {
   const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
-    const savedHistory = localStorage.getItem('bhashasetu_history');
-    if (savedHistory) {
-      setHistory(JSON.parse(savedHistory));
+    try {
+      const savedHistory = localStorage.getItem('bhashasetu_history');
+      if (savedHistory) {
+        setHistory(JSON.parse(savedHistory));
+      }
+    } catch (e) {
+      console.error('Failed to parse history from localStorage:', e);
+      localStorage.removeItem('bhashasetu_history');
     }
   }, []);
 
   const saveToHistory = (type: Tab, input: string, output: any) => {
     const newItem: HistoryItem = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: Math.random().toString(36).slice(2, 11),
       type,
       input,
       output,
       timestamp: Date.now()
     };
-    const updatedHistory = [newItem, ...history].slice(0, 20);
-    setHistory(updatedHistory);
-    localStorage.setItem('bhashasetu_history', JSON.stringify(updatedHistory));
+    setHistory(prev => {
+      const updated = [newItem, ...prev].slice(0, 20);
+      localStorage.setItem('bhashasetu_history', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const clearHistory = () => {

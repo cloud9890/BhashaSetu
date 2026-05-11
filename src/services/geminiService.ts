@@ -1,5 +1,8 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
+import Sentiment from 'sentiment';
 
+// ─── Constants & Types ────────────────────────────────────────────────────────
+const sentiment = new Sentiment();
 const keysString = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
 const availableKeys = keysString.split(',').map(k => k.trim()).filter(Boolean);
 let currentKeyIndex = 0;
@@ -14,16 +17,46 @@ function rotateKey() {
   return true;
 }
 
-const requestCache = new Map<string, any>();
+// ─── Persistent Cache Implementation ──────────────────────────────────────────
+class PersistentCache {
+  private prefix = 'bhashasetu_cache_';
+  private maxItems = 100;
+
+  get(key: string) {
+    const cached = localStorage.getItem(this.prefix + key);
+    if (!cached) return null;
+    try {
+      const { data, expiry } = JSON.parse(cached);
+      if (expiry && Date.now() > expiry) {
+        localStorage.removeItem(this.prefix + key);
+        return null;
+      }
+      return data;
+    } catch { return null; }
+  }
+
+  set(key: string, data: any, ttlDays = 7) {
+    const expiry = Date.now() + (ttlDays * 24 * 60 * 60 * 1000);
+    localStorage.setItem(this.prefix + key, JSON.stringify({ data, expiry }));
+    
+    // Simple cleanup: if too many items, clear old ones
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(this.prefix));
+    if (keys.length > this.maxItems) {
+      localStorage.removeItem(keys[0]);
+    }
+  }
+}
+
+const cache = new PersistentCache();
 
 export const SUPPORTED_LANGUAGES = [
   { code: "en", name: "English" },
-  { code: "as", name: "Assamese" },
+  { code: "hi", name: "Hindi" },
   { code: "bn", name: "Bengali" },
+  { code: "as", name: "Assamese" },
   { code: "brx", name: "Bodo" },
   { code: "doi", name: "Dogri" },
   { code: "gu", name: "Gujarati" },
-  { code: "hi", name: "Hindi" },
   { code: "kn", name: "Kannada" },
   { code: "ks", name: "Kashmiri" },
   { code: "kok", name: "Konkani" },
@@ -63,40 +96,88 @@ export class NLPError extends Error {
   }
 }
 
-async function safeGenerate(params: any, retries = availableKeys.length): Promise<any> {
-  const cacheKey = JSON.stringify(params);
-  if (requestCache.has(cacheKey)) {
-    return requestCache.get(cacheKey);
+// ─── Local Processing Helpers ────────────────────────────────────────────────
+
+/**
+ * Detects Indian scripts using Unicode ranges.
+ * This runs instantly and requires zero API calls.
+ */
+function detectLanguageLocally(text: string): { languageCode: string, languageName: string } | null {
+  const scripts = [
+    { name: 'Hindi', code: 'hi', regex: /[\u0900-\u097F]/ },      // Devanagari
+    { name: 'Bengali', code: 'bn', regex: /[\u0980-\u09FF]/ },    // Bengali/Assamese
+    { name: 'Gurmukhi', code: 'pa', regex: /[\u0A00-\u0A7F]/ },   // Punjabi
+    { name: 'Gujarati', code: 'gu', regex: /[\u0A80-\u0AFF]/ },
+    { name: 'Odia', code: 'or', regex: /[\u0B00-\u0B7F]/ },
+    { name: 'Tamil', code: 'ta', regex: /[\u0B80-\u0BFF]/ },
+    { name: 'Telugu', code: 'te', regex: /[\u0C00-\u0C7F]/ },
+    { name: 'Kannada', code: 'kn', regex: /[\u0C80-\u0CFF]/ },
+    { name: 'Malayalam', code: 'ml', regex: /[\u0D00-\u0D7F]/ }
+  ];
+
+  for (const script of scripts) {
+    if (script.regex.test(text)) {
+      return { languageCode: script.code, languageName: script.name };
+    }
   }
+
+  // Fallback for English (basic latin)
+  if (/^[A-Za-z0-9\s.,!?;:'"()\-]+$/.test(text)) {
+    return { languageCode: 'en', languageName: 'English' };
+  }
+
+  return null;
+}
+
+/**
+ * Basic sentiment analysis using AFINN word list.
+ */
+function analyzeSentimentLocally(text: string) {
+  const result = sentiment.analyze(text);
+  let label = 'neutral';
+  if (result.score > 1) label = 'positive';
+  else if (result.score < -1) label = 'negative';
+
+  return {
+    sentiment: label,
+    score: Math.min(1, Math.max(0, (result.score + 5) / 10)), // Normalize to 0-1
+    explanation: `Local analysis based on vocabulary keywords (Score: ${result.score}).`
+  };
+}
+
+// ─── AI Service Logic ────────────────────────────────────────────────────────
+
+async function safeGenerate(params: any, retries = availableKeys.length): Promise<any> {
+  const cacheKey = btoa(JSON.stringify(params)).slice(0, 100); // Simple short hash-like key
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
 
   try {
     const response = await ai.models.generateContent(params);
     if (!response.text && !params.config?.responseModalities?.includes(Modality.AUDIO)) {
-      throw new NLPError("The AI model returned an empty response. Please try a different input.");
+      throw new NLPError("The AI model returned an empty response.");
     }
     
-    // Cache a simplified response object to save tokens
-    const mockResponse = { text: response.text };
-    requestCache.set(cacheKey, mockResponse);
-
-    return response;
+    const result = { text: response.text, candidates: response.candidates };
+    cache.set(cacheKey, result);
+    return result;
   } catch (error: any) {
     if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("Too Many Requests")) {
       if (rotateKey() && retries > 1) {
-        console.warn("API limit reached, retrying with next key...");
         return safeGenerate(params, retries - 1);
       }
-      throw new NLPError("API quota exceeded for all available keys. Please try again later.");
+      throw new NLPError("API quota exceeded for all available keys.");
     }
     console.error("Gemini API Error:", error);
-    if (error.message?.includes("API_KEY_INVALID")) {
-      throw new NLPError("Invalid API Key. Please check your configuration.");
-    }
     throw new NLPError(error.message || "An unexpected error occurred during processing.");
   }
 }
 
 export async function detectLanguage(text: string) {
+  // Try local detection first
+  const local = detectLanguageLocally(text);
+  if (local) return local;
+
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
     contents: `Analyze the following text and detect its language. Focus on Indian regional languages. Return a JSON object with "languageCode" (ISO 639-1) and "languageName".\n\nText: ${text}`,
@@ -118,10 +199,18 @@ export async function detectLanguage(text: string) {
 export async function translateText(text: string, targetLang: string) {
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `Translate to ${targetLang}. Provide JSON with:
-    1. "translation"
-    2. "transliteration" (English letters)
-    3. "culturalContext" (English explanation of idioms/nuances).
+    contents: `You are BhashaSetu, a cultural bridging AI. Translate the following text to ${targetLang}.
+    
+    GOALS:
+    1. Accuracy: Use formal, grammatically correct ${targetLang}.
+    2. Culture: If the source contains idioms or cultural references, find the exact regional equivalent.
+    3. Nuance: Preserve the original emotion (respectful, casual, urgent).
+    
+    Return JSON with:
+    - "translation": The translated text.
+    - "transliteration": Phonetic English script version.
+    - "culturalContext": A brief English note on any regional idioms or etiquette used.
+    
     Text: ${text}`,
     config: {
       responseMimeType: "application/json",
@@ -142,9 +231,9 @@ export async function translateText(text: string, targetLang: string) {
 export async function normalizeCodeSwitching(text: string, targetLang: string) {
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `The following text is "Code-Switched" (a mix of multiple languages, likely an Indian language and English). 
-    Normalize this into a formal, high-quality version in ${targetLang}. 
-    Return a JSON object with "normalizedText" and "detectedMix" (describing the languages mixed).
+    contents: `The following text is "Code-Switched" (likely Hinglish, Benglish, or similar). 
+    Normalize this into a formal, script-pure version in ${targetLang}. 
+    Return a JSON object with "normalizedText" and "detectedMix".
     
     Text: ${text}`,
     config: {
@@ -165,16 +254,9 @@ export async function normalizeCodeSwitching(text: string, targetLang: string) {
 export async function exploreIdioms(text: string, targetLang: string) {
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `Analyze the following phrase or idiom: "${text}".
-    1. If it's an English idiom, find the closest CULTURAL equivalent in ${targetLang} (not a literal translation, but a proverb or phrase with the same soul/meaning).
-    2. If it's a plain phrase, translate it into a colorful, idiomatic version in ${targetLang}.
-    3. Explain the origin or cultural context of the ${targetLang} equivalent.
-    
-    Return a JSON object with:
-    - "originalMeaning": The meaning of the input text.
-    - "idiomaticEquivalent": The culturally equivalent idiom in ${targetLang}.
-    - "literalTranslation": A literal translation of the input into ${targetLang}.
-    - "culturalOrigin": Explanation of the cultural context or origin.`,
+    contents: `Analyze the idiom/phrase: "${text}".
+    Find the closest CULTURAL (not literal) equivalent in ${targetLang}. 
+    Return JSON with "originalMeaning", "idiomaticEquivalent", "literalTranslation", and "culturalOrigin".`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -195,12 +277,8 @@ export async function exploreIdioms(text: string, targetLang: string) {
 export async function simplifyComplexText(text: string, targetLang: string, domain: 'legal' | 'medical') {
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `You are an expert in ${domain} communication. Simplify the following complex ${domain} text into plain, easy-to-understand ${targetLang}.
-    Focus on explaining the core meaning, obligations, or health implications without using jargon.
-    
-    Return a JSON object with:
-    - "simplifiedText": The simplified version in ${targetLang}.
-    - "keyTerms": An array of objects with "term" (original jargon) and "explanation" (simple meaning in ${targetLang}).
+    contents: `Simplify this ${domain} text into plain, easy ${targetLang}. 
+    Return JSON with "simplifiedText" and "keyTerms" (array of {term, explanation}).
     
     Text: ${text}`,
     config: {
@@ -231,11 +309,9 @@ export async function simplifyComplexText(text: string, targetLang: string, doma
 export async function transliterateScript(text: string, targetScript: string) {
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `Transliterate the following text into the ${targetScript} script. This is script-to-script conversion, not translation.
-    
-    Text: ${text}
-    
-    Return a JSON object with "transliteratedText".`,
+    contents: `Transliterate to ${targetScript} script (not translation). 
+    Return JSON with "transliteratedText".
+    Text: ${text}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -253,14 +329,8 @@ export async function transliterateScript(text: string, targetScript: string) {
 export async function detectDialect(text: string) {
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `Analyze the following text and detect its specific Indian dialect (e.g., Bhojpuri, Maithili, Haryanvi, Marwari, etc.).
-    Provide a "standardized" version of the text in the main language (e.g., Standard Hindi) and explain the dialectal nuances.
-    
-    Return a JSON object with:
-    - "detectedDialect": The name of the dialect.
-    - "standardizedText": The text in standard version of the parent language.
-    - "nuances": A brief explanation of what makes this dialect unique in this context.
-    
+    contents: `Detect specific Indian dialect in text. 
+    Return JSON with "detectedDialect", "standardizedText", and "nuances".
     Text: ${text}`,
     config: {
       responseMimeType: "application/json",
@@ -279,24 +349,13 @@ export async function detectDialect(text: string) {
 }
 
 export async function translateConversation(messages: { role: 'user' | 'assistant', text: string }[], targetLang: string) {
-  const history = messages.map(m => `${m.role === 'user' ? 'Person A' : 'Person B'}: ${m.text}`).join('\n');
+  const history = messages.map(m => `${m.role === 'user' ? 'A' : 'B'}: ${m.text}`).join('\n');
   const lastMessage = messages[messages.length - 1].text;
 
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `You are a real-time conversation translator. 
-    Translate the following message from a conversation into ${targetLang}.
-    Maintain the tone, emotion, and context of the conversation.
-    
-    Conversation History:
-    ${history}
-    
-    Message to translate: "${lastMessage}"
-    
-    Return a JSON object with:
-    - "translation": The translated text.
-    - "pronunciation": Phonetic pronunciation in English.
-    - "contextNote": Any brief note on tone or cultural nuance if relevant.`,
+    contents: `Real-time convo translator. History:\n${history}\nTranslate: "${lastMessage}" to ${targetLang}.
+    Return JSON with "translation", "pronunciation", "contextNote".`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -315,24 +374,19 @@ export async function translateConversation(messages: { role: 'user' | 'assistan
 
 export type VideoAnalysisType = 'summarization' | 'object_detection' | 'action_recognition' | 'sentiment';
 
-export async function analyzeVideo(
-  base64Data: string, 
-  mimeType: string, 
-  targetLang: string, 
-  analysisType: VideoAnalysisType = 'summarization'
-) {
+export async function analyzeVideo(base64Data: string, mimeType: string, targetLang: string, analysisType: VideoAnalysisType = 'summarization') {
   const prompts = {
-    summarization: `Analyze this video content and provide a detailed summary in ${targetLang}. Focus on the key messages and context.`,
-    object_detection: `Identify all significant objects, people, and items visible in this video. Provide the list in ${targetLang}.`,
-    action_recognition: `Describe the main actions, movements, and events occurring in this video in ${targetLang}.`,
-    sentiment: `Analyze the emotional tone and sentiment of the video (visuals and audio if any) and explain it in ${targetLang}.`
+    summarization: `Summarize video in ${targetLang}.`,
+    object_detection: `Identify objects in ${targetLang}.`,
+    action_recognition: `Describe actions in ${targetLang}.`,
+    sentiment: `Analyze sentiment in ${targetLang}.`
   };
 
   const response = await safeGenerate({
     model: "gemini-3.1-pro-preview",
     contents: [
       { inlineData: { data: base64Data, mimeType } },
-      { text: `${prompts[analysisType]} Return as a JSON object with "result" (string) and "details" (array of strings).` }
+      { text: `${prompts[analysisType]} Return JSON with "summary" and "keyPoints" (array).` }
     ],
     config: {
       responseMimeType: "application/json",
@@ -347,66 +401,51 @@ export async function analyzeVideo(
     },
   });
   const parsed = JSON.parse(response.text || "{}");
-  return {
-    summary: parsed.summary,
-    keyPoints: parsed.keyPoints,
-    result: parsed.summary // For handleSpeech fallback
-  };
+  return { ...parsed, result: parsed.summary };
 }
 
 export async function generateSpeech(text: string, retries = availableKeys.length): Promise<string> {
   const params = {
     model: "gemini-2.5-flash-preview-tts",
     contents: [{ parts: [{ text }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-    },
+    config: { responseModalities: [Modality.AUDIO] },
   };
   
   const cacheKey = `speech:${text}`;
-  if (requestCache.has(cacheKey)) {
-    return requestCache.get(cacheKey);
-  }
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
 
   try {
     const response = await ai.models.generateContent(params);
-    const audioPart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    if (audioPart?.inlineData?.data) {
-      const data = audioPart.inlineData.data;
-      requestCache.set(cacheKey, data);
-      return data;
+    const audioData = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+    if (audioData) {
+      cache.set(cacheKey, audioData);
+      return audioData;
     }
-    throw new NLPError("Failed to generate speech.");
-  } catch (error: any) {
-    if (error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("Too Many Requests")) {
-      if (rotateKey() && retries > 1) {
-        console.warn("API limit reached for TTS, retrying with next key...");
-        return generateSpeech(text, retries - 1);
-      }
-      throw new NLPError("API quota exceeded for all available keys.");
-    }
-    throw new NLPError("Failed to generate speech.");
+    throw new Error();
+  } catch {
+    if (rotateKey() && retries > 1) return generateSpeech(text, retries - 1);
+    throw new NLPError("Speech generation failed.");
   }
 }
 
 export async function summarizeText(text: string, lang: string, length: 'short' | 'medium' | 'long' = 'medium') {
-  const lengthPrompt = {
-    short: "one or two sentences",
-    medium: "a concise paragraph",
-    long: "a detailed summary with key points"
-  }[length];
-
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `Summarize the following text in ${lang}. The summary should be ${lengthPrompt}.\n\nText: ${text}`,
+    contents: `Summarize in ${lang} (${length}): ${text}`,
   });
   return response.text;
 }
 
 export async function analyzeSentiment(text: string, lang: string) {
+  // If text is primarily English, use local sentiment to save API calls
+  if (/^[A-Za-z0-9\s.,!?;:'"()\-]+$/.test(text)) {
+    return analyzeSentimentLocally(text);
+  }
+
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `Analyze the sentiment of the following text written in ${lang}. Provide a detailed breakdown of the emotional tone. Return a JSON object with "sentiment" (positive, negative, or neutral), "score" (0 to 1), and a brief "explanation" in English.\n\nText: ${text}`,
+    contents: `Analyze sentiment in ${lang}. Return JSON with "sentiment", "score", "explanation".\nText: ${text}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -426,13 +465,10 @@ export async function analyzeSentiment(text: string, lang: string) {
 export async function generateSyntheticData(topic: string, lang: string, count: number = 5) {
   const response = await safeGenerate({
     model: "gemini-3-flash-preview",
-    contents: `Generate ${count} diverse and high-quality synthetic sentences in ${lang} related to the topic: "${topic}". These sentences should be suitable for training an NLP model (e.g., translation or classification). Return as a JSON array of strings.`,
+    contents: `Generate ${count} synthetic sentences in ${lang} for topic: "${topic}". Return JSON array.`,
     config: {
       responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: { type: Type.STRING },
-      },
+      responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } },
     },
   });
   return JSON.parse(response.text || "[]");
@@ -444,7 +480,7 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
     contents: {
       parts: [
         { inlineData: { data: base64Data, mimeType } },
-        { text: "Extract all the text from this image. Return only the extracted text. If there is no text, return an empty string." }
+        { text: "Extract all text." }
       ]
     }
   });
@@ -457,8 +493,7 @@ export async function translateSignLanguage(base64Data: string, mimeType: string
     contents: {
       parts: [
         { inlineData: { data: base64Data, mimeType } },
-        { text: `Identify the Indian Sign Language (ISL) gesture shown in this image and translate its meaning into ${targetLang}. 
-        If it's a common global sign, provide that meaning. Return a JSON object with "meaning" and "confidence" (0-1).` }
+        { text: `Translate ISL sign to ${targetLang}. Return JSON with "meaning", "confidence".` }
       ]
     },
     config: {
@@ -481,9 +516,7 @@ export async function translateSignVideo(base64Data: string, mimeType: string, t
     model: "gemini-3.1-pro-preview",
     contents: [
       { inlineData: { data: base64Data, mimeType } },
-      { text: `This video shows a person performing an Indian Sign Language (ISL) gesture. 
-      Analyze the motion and translate the meaning into ${targetLang}. 
-      Return a JSON object with "meaning" and "confidence" (0-1).` }
+      { text: `Translate ISL video to ${targetLang}. Return JSON with "meaning", "confidence".` }
     ],
     config: {
       responseMimeType: "application/json",
@@ -505,14 +538,7 @@ export async function translateDocument(base64Data: string, mimeType: string, ta
     model: "gemini-3.1-pro-preview",
     contents: [
       { inlineData: { data: base64Data, mimeType } },
-      { text: `You are an expert document translator and cultural bridging AI.
-      Translate the text in this document to ${targetLang}. 
-      
-      CRITICAL INSTRUCTIONS:
-      1. Return the output as properly structured Markdown.
-      2. Ensure you match the visual hierarchy (headings, bold, lists, paragraphs) of the original document.
-      3. Do NOT summarize or skip anything. Translate exactly line by line.
-      4. Simplify confusing English jargon into easily understood regional terms in ${targetLang}.` }
+      { text: `Translate doc to ${targetLang}. Structure as Markdown. Maintain hierarchy. Simplify jargon.` }
     ]
   });
   return response.text;

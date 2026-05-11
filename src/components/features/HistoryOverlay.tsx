@@ -21,13 +21,13 @@ export function HistoryOverlay({ showHistory, setShowHistory, history, clearHist
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setShowHistory(false)}
-            className="fixed inset-0 bg-[#141414]/20 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-[var(--app-fg)]/20 backdrop-blur-sm z-40"
           />
           <motion.div 
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
-            className="fixed left-0 top-0 bottom-0 w-[85vw] max-w-sm bg-[#E4E3E0] border-r border-[#141414] z-50 p-4 md:p-6 overflow-y-auto shadow-2xl"
+            className="fixed left-0 top-0 bottom-0 w-[85vw] max-w-sm bg-[var(--app-bg)] border-r border-[var(--app-fg)] z-50 p-4 md:p-6 overflow-y-auto shadow-2xl"
           >
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-sm font-bold uppercase tracking-widest">History</h3>
@@ -35,7 +35,7 @@ export function HistoryOverlay({ showHistory, setShowHistory, history, clearHist
                 <button onClick={clearHistory} className="p-1.5 hover:bg-red-100 text-red-600 rounded-sm transition-colors">
                   <Trash2 className="w-4 h-4" />
                 </button>
-                <button onClick={() => setShowHistory(false)} className="p-1.5 hover:bg-[#141414]/5 rounded-sm">
+                <button onClick={() => setShowHistory(false)} className="p-1.5 hover:bg-[var(--app-fg)]/5 rounded-sm">
                   <ChevronRight className="w-4 h-4 rotate-180" />
                 </button>
               </div>
@@ -51,11 +51,11 @@ export function HistoryOverlay({ showHistory, setShowHistory, history, clearHist
                 {history.map((item) => (
                   <div 
                     key={item.id} 
-                    className="p-3 bg-white/50 border border-[#141414]/10 rounded-sm cursor-pointer hover:border-[#141414] transition-all"
+                    className="p-3 bg-white/50 border border-[var(--app-fg)]/10 rounded-sm cursor-pointer hover:border-[var(--app-fg)] transition-all"
                     onClick={() => onSelectHistory(item.type, item.output)}
                   >
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-[9px] font-mono uppercase bg-[#141414] text-[#E4E3E0] px-1.5 py-0.5 rounded-sm">
+                      <span className="text-[9px] font-mono uppercase bg-[var(--app-fg)] text-[var(--app-bg)] px-1.5 py-0.5 rounded-sm">
                         {item.type}
                       </span>
                       <span className="text-[9px] font-mono opacity-40">

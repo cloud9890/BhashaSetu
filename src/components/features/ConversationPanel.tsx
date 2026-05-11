@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Mic, MicOff, Volume2, RotateCcw, ChevronDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { SUPPORTED_LANGUAGES, translateText } from '../../services/geminiService';
+import { useAudio } from '../../hooks/useAudio';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ConvoMessage {
@@ -11,60 +12,6 @@ interface ConvoMessage {
   translated: string;
   langA: string;
   langB: string;
-}
-
-// ─── TTS helper (synchronous, must be called in click context) ────────────────
-function speakText(text: string, langCode: string) {
-  if (!('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-  const lang = langCode.includes('-') ? langCode : `${langCode}-IN`;
-  const chunks = text.length > 200
-    ? (text.match(/[^.!?\n]{1,200}[.!?\n]*/g) || [text])
-    : [text];
-  chunks.forEach(chunk => {
-    const u = new SpeechSynthesisUtterance(chunk.trim());
-    u.lang = lang;
-    u.rate = 0.95;
-    window.speechSynthesis.speak(u);
-  });
-}
-
-// ─── STT helper ───────────────────────────────────────────────────────────────
-function createRecognition(
-  langCode: string,
-  onInterim: (t: string) => void,
-  onFinal: (t: string) => void,
-  onEnd: () => void,
-  onError: (e: string) => void
-) {
-  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-  if (!SR) { onError('Speech recognition unavailable. Use Chrome.'); return null; }
-
-  const r = new SR();
-  r.continuous = true;
-  r.interimResults = true;
-  r.lang = langCode.includes('-') ? langCode : `${langCode}-IN`;
-  r.maxAlternatives = 1;
-
-  r.onresult = (e: any) => {
-    let interim = '';
-    let final = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) final += e.results[i][0].transcript;
-      else interim += e.results[i][0].transcript;
-    }
-    if (interim) onInterim(interim);
-    if (final) onFinal(final);
-  };
-
-  r.onerror = (e: any) => {
-    if (e.error === 'no-speech') return;
-    onError(`Mic error: ${e.error}`);
-    onEnd();
-  };
-
-  r.onend = onEnd;
-  return r;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -81,6 +28,7 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
   const [interimTextB, setInterimTextB] = useState('');
   const [translating, setTranslating] = useState(false);
 
+  const { playSpeech, stopSpeech, isSpeaking } = useAudio();
   const recogRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -114,7 +62,6 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
     stopCurrent();
     setTranslating(true);
 
-    const sourceLang = speaker === 'A' ? langA : langB;
     const targetLang = speaker === 'A' ? langB : langA;
     const targetLangName = SUPPORTED_LANGUAGES.find(l => l.code === targetLang)?.name || 'Hindi';
 
@@ -133,7 +80,7 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
       setMessages(prev => [...prev, newMsg]);
 
       // Automatically speak the translation to the other person
-      speakText(translated, targetLang);
+      playSpeech(translated, setError, targetLang);
     } catch (e) {
       setError('Translation failed. Please try again.');
     } finally {
@@ -142,50 +89,62 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
   };
 
   const toggleMic = (speaker: 'A' | 'B') => {
-    // If already listening for this speaker, stop
     if (activeListener === speaker) {
       stopCurrent();
       return;
     }
 
-    // Stop previous listener if switching
     stopCurrent();
 
     const lang = speaker === 'A' ? langA : langB;
     const setInterim = speaker === 'A' ? setInterimTextA : setInterimTextB;
 
-    const recog = createRecognition(
-      lang,
-      (t) => setInterim(t),
-      (t) => handleFinishedUtterance(speaker, t),
-      () => {
-        setActiveListener(null);
-        setInterim('');
-      },
-      (e) => {
-        setError(e);
-        setActiveListener(null);
-        setInterim('');
-      }
-    );
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { setError('Speech recognition unavailable. Use Chrome.'); return; }
 
-    if (recog) {
-      recog.start();
-      recogRef.current = recog;
-      setActiveListener(speaker);
-    }
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = lang.includes('-') ? lang : `${lang}-IN`;
+    r.maxAlternatives = 1;
+
+    r.onresult = (e: any) => {
+      let interim = '';
+      let final = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript;
+        else interim += e.results[i][0].transcript;
+      }
+      if (interim) setInterim(interim);
+      if (final) handleFinishedUtterance(speaker, final);
+    };
+
+    r.onerror = (e: any) => {
+      if (e.error === 'no-speech') return;
+      setError(`Mic error: ${e.error}`);
+      setActiveListener(null);
+    };
+
+    r.onend = () => {
+      setActiveListener(null);
+      setInterim('');
+    };
+
+    r.start();
+    recogRef.current = r;
+    setActiveListener(speaker);
   };
 
   const langAName = SUPPORTED_LANGUAGES.find(l => l.code === langA)?.name || 'English';
   const langBName = SUPPORTED_LANGUAGES.find(l => l.code === langB)?.name || 'Hindi';
 
   return (
-    <div className="flex flex-col h-[580px] border border-[#141414] overflow-hidden bg-white/10">
+    <div className="flex flex-col h-full min-h-[500px] border border-[var(--app-fg)] overflow-hidden bg-white/10 rounded-xl backdrop-blur-md">
       {/* ── Language selectors ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 border-b border-[#141414]">
+      <div className="grid grid-cols-2 border-b border-[var(--app-fg)]">
         {/* Speaker A language */}
-        <div className="flex flex-col border-r border-[#141414]">
-          <div className="px-4 py-2 bg-[#141414] text-[#E4E3E0] flex items-center justify-between">
+        <div className="flex flex-col border-r border-[var(--app-fg)]">
+          <div className="px-4 py-2 bg-[var(--app-fg)] text-[var(--app-bg)] flex items-center justify-between">
             <span className="text-[9px] font-mono uppercase tracking-widest opacity-70">Speaker A</span>
           </div>
           <div className="relative">
@@ -204,7 +163,7 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
 
         {/* Speaker B language */}
         <div className="flex flex-col">
-          <div className="px-4 py-2 bg-white/50 border-b border-[#141414]/10 flex items-center justify-between">
+          <div className="px-4 py-2 bg-white/50 border-b border-[var(--app-fg)]/10 flex items-center justify-between">
             <span className="text-[9px] font-mono uppercase tracking-widest opacity-70">Speaker B</span>
             <button
               onClick={() => setMessages([])}
@@ -260,19 +219,22 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
                 <div className={cn(
                   'max-w-[85%] px-4 py-2.5 text-sm leading-relaxed',
                   isA
-                    ? 'bg-[#141414] text-[#E4E3E0] rounded-br-lg rounded-tr-lg rounded-bl-sm'
-                    : 'bg-white border border-[#141414]/20 text-[#141414] rounded-bl-lg rounded-tl-lg rounded-br-sm'
+                    ? 'bg-[var(--app-fg)] text-[var(--app-bg)] rounded-br-lg rounded-tr-lg rounded-bl-sm shadow-lg'
+                    : 'bg-white border border-[var(--app-fg)]/20 text-[var(--app-fg)] rounded-bl-lg rounded-tl-lg rounded-br-sm shadow-md'
                 )}>
                   {msg.original}
                 </div>
                 {/* Translation */}
-                <div className={cn(
-                  'max-w-[85%] px-3 py-1.5 text-[11px] italic flex items-center gap-2',
-                  isA ? 'text-amber-700' : 'text-blue-700'
-                )}>
-                  <Volume2 className="w-2.5 h-2.5 opacity-60 shrink-0" />
+                <button 
+                  onClick={() => playSpeech(msg.translated, setError, msg.speaker === 'A' ? langB : langA)}
+                  className={cn(
+                    'max-w-[85%] px-3 py-1.5 text-[11px] italic flex items-center gap-2 hover:opacity-80 transition-opacity',
+                    isA ? 'text-amber-700' : 'text-blue-700'
+                  )}
+                >
+                  <Volume2 className={cn("w-2.5 h-2.5 shrink-0", isSpeaking ? "animate-pulse" : "opacity-60")} />
                   {msg.translated}
-                </div>
+                </button>
               </motion.div>
             );
           })}
@@ -282,7 +244,7 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
         {interimTextA && (
           <div className="flex flex-col items-start gap-1">
             <span className="text-[8px] font-mono uppercase opacity-40 px-1">Speaker A · speaking...</span>
-            <div className="max-w-[85%] px-4 py-2.5 bg-[#141414]/40 text-[#141414] text-sm italic rounded-br-lg rounded-tr-lg opacity-60">
+            <div className="max-w-[85%] px-4 py-2.5 bg-[var(--app-fg)]/40 text-[var(--app-fg)] text-sm italic rounded-br-lg rounded-tr-lg opacity-60">
               {interimTextA}
             </div>
           </div>
@@ -290,7 +252,7 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
         {interimTextB && (
           <div className="flex flex-col items-end gap-1">
             <span className="text-[8px] font-mono uppercase opacity-40 px-1">Speaker B · speaking...</span>
-            <div className="max-w-[85%] px-4 py-2.5 bg-white/70 border border-[#141414]/10 text-[#141414] text-sm italic rounded-bl-lg rounded-tl-lg opacity-60">
+            <div className="max-w-[85%] px-4 py-2.5 bg-white/70 border border-[var(--app-fg)]/10 text-[var(--app-fg)] text-sm italic rounded-bl-lg rounded-tl-lg opacity-60">
               {interimTextB}
             </div>
           </div>
@@ -304,23 +266,23 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
       </div>
 
       {/* ── Mic buttons ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 border-t border-[#141414]">
+      <div className="grid grid-cols-2 border-t border-[var(--app-fg)]">
         {/* Speaker A mic */}
         <button
           onClick={() => toggleMic('A')}
           disabled={translating || (activeListener === 'B')}
           className={cn(
-            'flex flex-col items-center justify-center gap-2 py-5 border-r border-[#141414] transition-all duration-200 disabled:opacity-30',
+            'flex flex-col items-center justify-center gap-2 py-5 border-r border-[var(--app-fg)] transition-all duration-200 disabled:opacity-30',
             activeListener === 'A'
-              ? 'bg-[#141414] text-[#E4E3E0]'
-              : 'bg-transparent text-[#141414] hover:bg-[#141414]/5'
+              ? 'bg-[var(--app-fg)] text-[var(--app-bg)]'
+              : 'bg-transparent text-[var(--app-fg)] hover:bg-[var(--app-fg)]/5'
           )}
         >
           <div className={cn(
             'w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all',
             activeListener === 'A'
-              ? 'border-[#E4E3E0] animate-pulse bg-[#E4E3E0]/10'
-              : 'border-[#141414]'
+              ? 'border-[var(--app-bg)] animate-pulse bg-[var(--app-bg)]/10'
+              : 'border-[var(--app-fg)]'
           )}>
             {activeListener === 'A' ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </div>
@@ -339,15 +301,15 @@ export function ConversationPanel({ setError }: ConversationPanelProps) {
           className={cn(
             'flex flex-col items-center justify-center gap-2 py-5 transition-all duration-200 disabled:opacity-30',
             activeListener === 'B'
-              ? 'bg-[#141414] text-[#E4E3E0]'
-              : 'bg-transparent text-[#141414] hover:bg-[#141414]/5'
+              ? 'bg-[var(--app-fg)] text-[var(--app-bg)]'
+              : 'bg-transparent text-[var(--app-fg)] hover:bg-[var(--app-fg)]/5'
           )}
         >
           <div className={cn(
             'w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all',
             activeListener === 'B'
-              ? 'border-[#E4E3E0] animate-pulse bg-[#E4E3E0]/10'
-              : 'border-[#141414]'
+              ? 'border-[var(--app-bg)] animate-pulse bg-[var(--app-bg)]/10'
+              : 'border-[var(--app-fg)]'
           )}>
             {activeListener === 'B' ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </div>

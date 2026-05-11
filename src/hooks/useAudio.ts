@@ -1,19 +1,19 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import { generateSpeech } from '../services/geminiService';
 
 // ─── Google Translate language code mapping ───────────────────────────────────
-// Maps internal lang codes to Google Translate TTS language tags
 const GOOGLE_TTS_LANG: Record<string, string> = {
   en: 'en', hi: 'hi', bn: 'bn', ta: 'ta', te: 'te',
   mr: 'mr', gu: 'gu', kn: 'kn', ml: 'ml', pa: 'pa',
-  or: 'or', as: 'as', mni: 'mni', sat: 'hi', doi: 'hi',
-  mai: 'mai', kok: 'kok', brx: 'hi', ks: 'ur', sa: 'sa',
-  ne: 'ne', sd: 'sd', ur: 'ur', bho: 'bho', awa: 'hi',
+  or: 'or', as: 'as', mni: 'hi', sat: 'hi', doi: 'hi',
+  mai: 'hi', kok: 'hi', brx: 'hi', ks: 'ur', sa: 'hi',
+  ne: 'ne', sd: 'sd', ur: 'ur', bho: 'hi', awa: 'hi',
   mag: 'hi', raj: 'hi', mwr: 'hi', bgc: 'hi', hne: 'hi',
   bhb: 'hi', gon: 'hi', tcy: 'kn', kha: 'en', lus: 'en',
   grt: 'bn', trp: 'bn',
 };
 
-// ─── Web Speech BCP-47 fallback map (used if Google proxy fails) ──────────────
+// ─── Web Speech BCP-47 fallback map ──────────────────────────────────────────
 const WEB_SPEECH_LANG: Record<string, string> = {
   en: 'en-IN', hi: 'hi-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN',
   mr: 'mr-IN', gu: 'gu-IN', kn: 'kn-IN', ml: 'ml-IN', pa: 'pa-IN',
@@ -25,99 +25,13 @@ const WEB_SPEECH_LANG: Record<string, string> = {
   grt: 'bn-IN', trp: 'bn-IN',
 };
 
-// ─── Google TTS API via our Vercel proxy ──────────────────────────────────────
-async function speakViaGoogleTTS(
-  text: string,
-  langCode: string,
-  onEnd: () => void,
-  onError: (msg: string) => void
-): Promise<boolean> {
-  const googleLang = GOOGLE_TTS_LANG[langCode] || 'hi';
-
-  // Google TTS has a limit of ~200 chars per request — split if needed
-  const chunks = text.length > 180
-    ? (text.match(/[^.!?,;\n]{1,180}[.!?,;\n]*/g) || [text])
-    : [text];
-
-  try {
-    // Fetch all chunks in parallel
-    const audioBuffers = await Promise.all(
-      chunks.map(async (chunk) => {
-        const res = await fetch(
-          `/api/tts?text=${encodeURIComponent(chunk.trim())}&lang=${encodeURIComponent(googleLang)}`
-        );
-        if (!res.ok) throw new Error(`API error ${res.status}`);
-        return res.arrayBuffer();
-      })
-    );
-
-    // Concatenate all audio buffers
-    const totalLength = audioBuffers.reduce((acc, buf) => acc + buf.byteLength, 0);
-    const combined = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const buf of audioBuffers) {
-      combined.set(new Uint8Array(buf), offset);
-      offset += buf.byteLength;
-    }
-
-    // Decode and play via Web Audio API
-    const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
-    const audioCtx = new AudioContextClass();
-    const decoded = await audioCtx.decodeAudioData(combined.buffer);
-    const source = audioCtx.createBufferSource();
-    source.buffer = decoded;
-    source.connect(audioCtx.destination);
-    source.onended = () => {
-      audioCtx.close();
-      onEnd();
-    };
-    source.start();
-    return true;
-  } catch (err) {
-    console.warn('Google TTS failed, falling back to Web Speech:', err);
-    return false;
-  }
-}
-
-// ─── Web Speech fallback ───────────────────────────────────────────────────────
-function speakViaWebSpeech(
-  text: string,
-  langCode: string,
-  onEnd: () => void,
-  onError: (msg: string) => void
-) {
-  if (!('speechSynthesis' in window)) {
-    onError('TTS not supported in this browser.');
-    return;
-  }
-
-  window.speechSynthesis.cancel();
-  const lang = WEB_SPEECH_LANG[langCode] || 'hi-IN';
-
-  const speakChunk = (chunk: string, isLast: boolean) => {
-    const u = new SpeechSynthesisUtterance(chunk.trim());
-    u.lang = lang;
-    u.rate = 0.9;
-    if (isLast) u.onend = onEnd;
-    u.onerror = (e: any) => {
-      if (e.error !== 'interrupted') onError(`Audio error: ${e.error || 'Unknown'}`);
-    };
-    window.speechSynthesis.speak(u);
-  };
-
-  if (text.length > 200) {
-    const chunks = text.match(/[^.!?\n]{1,200}[.!?\n]*/g) || [text];
-    chunks.forEach((chunk, i) => speakChunk(chunk, i === chunks.length - 1));
-  } else {
-    speakChunk(text, true);
-  }
-}
-
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 export function useAudio() {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   // ─── STT ──────────────────────────────────────────────────────────────────
   const startListening = (
@@ -139,8 +53,7 @@ export function useAudio() {
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    const computedLang = langCode.includes('-') ? langCode : `${langCode}-IN`;
-    recognition.lang = computedLang;
+    recognition.lang = langCode.includes('-') ? langCode : `${langCode}-IN`;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => setIsListening(true);
@@ -173,14 +86,23 @@ export function useAudio() {
     setIsListening(false);
   }, []);
 
-  // ─── TTS ──────────────────────────────────────────────────────────────────
+  // ─── TTS Logic ──────────────────────────────────────────────────────────
+
+  const stopSpeech = useCallback(() => {
+    window.speechSynthesis?.cancel();
+    if (audioSourceRef.current) {
+      try { audioSourceRef.current.stop(); } catch (_) {}
+      audioSourceRef.current = null;
+    }
+    setIsSpeaking(false);
+  }, []);
+
   const playSpeech = async (
     text: string,
     onError: (err: string) => void,
     langCode: string = 'en'
   ) => {
     if (!text.trim()) return;
-
     if (isSpeaking) {
       stopSpeech();
       return;
@@ -189,19 +111,66 @@ export function useAudio() {
     setIsSpeaking(true);
     const onEnd = () => setIsSpeaking(false);
 
-    // 1. Try Google TTS proxy (supports all Indian languages)
-    const success = await speakViaGoogleTTS(text, langCode, onEnd, onError);
+    try {
+      // 1. Try Gemini Native TTS (High Quality, Multilingual)
+      const base64Audio = await generateSpeech(text);
+      if (base64Audio) {
+        const audioData = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0)).buffer;
+        
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        
+        const decodedBuffer = await audioContextRef.current.decodeAudioData(audioData);
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = decodedBuffer;
+        source.connect(audioContextRef.current.destination);
+        source.onended = onEnd;
+        audioSourceRef.current = source;
+        source.start(0);
+        return;
+      }
+    } catch (err) {
+      console.warn("Gemini TTS failed, trying fallbacks...");
+    }
 
-    // 2. If that fails (network, quota), fall back to browser Web Speech API
-    if (!success) {
-      speakViaWebSpeech(text, langCode, onEnd, onError);
+    // 2. Fallback: Google Translate TTS via Proxy
+    try {
+      const googleLang = GOOGLE_TTS_LANG[langCode] || 'hi';
+      const res = await fetch(`/api/tts?text=${encodeURIComponent(text.slice(0, 200))}&lang=${googleLang}`);
+      if (res.ok) {
+        const buffer = await res.arrayBuffer();
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        const decoded = await audioContextRef.current.decodeAudioData(buffer);
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = decoded;
+        source.connect(audioContextRef.current.destination);
+        source.onended = onEnd;
+        audioSourceRef.current = source;
+        source.start(0);
+        return;
+      }
+    } catch (err) {
+      console.warn("Proxy TTS failed, using Web Speech API...");
+    }
+
+    // 3. Last Resort: Web Speech API
+    if ('speechSynthesis' in window) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = WEB_SPEECH_LANG[langCode] || 'hi-IN';
+      u.onend = onEnd;
+      u.onerror = () => {
+        onError("TTS Output failed across all engines.");
+        onEnd();
+      };
+      window.speechSynthesis.speak(u);
+    } else {
+      onError("TTS not supported in this browser.");
+      onEnd();
     }
   };
-
-  const stopSpeech = useCallback(() => {
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
-  }, []);
 
   return {
     isListening,
